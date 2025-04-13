@@ -2,7 +2,7 @@
   "name": "files-combiner",
   "displayName": "File Combiner",
   "description": "Combine contents of multiple selected files into one file / 合并多个选中文件的内容到一个文件中",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "publisher": "rongsheng-li",
   "author": {
     "name": "Rongsheng Li",
@@ -27,7 +27,6 @@
     "menus": {
       "explorer/context": [
         {
-          "when": "explorerResourceIsFolder == false",
           "command": "filesCombiner.combineFiles",
           "group": "navigation"
         }
