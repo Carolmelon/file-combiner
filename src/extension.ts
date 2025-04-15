@@ -8,6 +8,11 @@ export function activate(context: vscode.ExtensionContext) {
 
     // 注册命令
     let disposable = vscode.commands.registerCommand('filesCombiner.combineFiles', async (uri, selectedFiles) => {
+        // 获取配置项
+        const config = vscode.workspace.getConfiguration('filesCombiner');
+        const showOnlySelectedFiles = config.get<boolean>('showOnlySelectedFiles', false);
+        const ignoreIgnoreFiles = config.get<boolean>('ignoreIgnoreFiles', false);
+        
         // selectedFiles 是一个 URI[] 数组，包含所有选中的文件
         if (!selectedFiles || !Array.isArray(selectedFiles) || selectedFiles.length === 0) {
             // 如果没有通过参数传入选中的文件，则尝试获取当前选中的文件
@@ -47,7 +52,13 @@ export function activate(context: vscode.ExtensionContext) {
             // 生成目录树（传递处理文件列表进去）
             let treeOutput = '';
             try {
-                treeOutput = generateDirectoryTree(commonParentDir, sortedPaths, outputChannel);
+                treeOutput = generateDirectoryTree(
+                    commonParentDir, 
+                    sortedPaths, 
+                    outputChannel, 
+                    showOnlySelectedFiles, 
+                    ignoreIgnoreFiles
+                );
             } catch (error) {
                 outputChannel.appendLine(`生成目录树失败: ${error}`);
                 treeOutput = `无法生成目录树: ${error}\n\n`;
@@ -195,16 +206,40 @@ function findCommonParentDirectory(filePaths: string[]): string {
 }
 
 // 生成目录树
-function generateDirectoryTree(dirPath: string, includedFiles: string[] = [], outputChannel: vscode.OutputChannel): string {
+function generateDirectoryTree(
+    dirPath: string, 
+    includedFiles: string[] = [], 
+    outputChannel: vscode.OutputChannel,
+    showOnlySelectedFiles: boolean = false,
+    ignoreIgnoreFiles: boolean = false
+): string {
     try {
-        // 首先收集忽略规则
-        const ignorePatterns = collectIgnorePatterns(dirPath, outputChannel);
+        // 首先收集忽略规则（如果设置为忽略忽略文件，则返回空Map）
+        const ignorePatterns = ignoreIgnoreFiles ? 
+            new Map<string, Set<string>>() : 
+            collectIgnorePatterns(dirPath, outputChannel);
         
         // 使用自定义函数生成目录树，确保在目录树显示阶段也应用忽略规则
-        return customDirectoryTree(dirPath, '', ignorePatterns, includedFiles, outputChannel);
+        return customDirectoryTree(
+            dirPath, 
+            '', 
+            ignorePatterns, 
+            includedFiles, 
+            outputChannel,
+            showOnlySelectedFiles
+        );
     } catch (error) {
-        const ignorePatterns = collectIgnorePatterns(dirPath, outputChannel);
-        return customDirectoryTree(dirPath, '', ignorePatterns, includedFiles, outputChannel);
+        const ignorePatterns = ignoreIgnoreFiles ? 
+            new Map<string, Set<string>>() : 
+            collectIgnorePatterns(dirPath, outputChannel);
+        return customDirectoryTree(
+            dirPath, 
+            '', 
+            ignorePatterns, 
+            includedFiles, 
+            outputChannel,
+            showOnlySelectedFiles
+        );
     }
 }
 
@@ -292,7 +327,8 @@ function customDirectoryTree(
     prefix: string = '', 
     ignorePatterns: Map<string, Set<string>> = new Map(),
     includedFiles: string[] = [],
-    outputChannel: vscode.OutputChannel
+    outputChannel: vscode.OutputChannel,
+    showOnlySelectedFiles: boolean = false
 ): string {
     const baseName = path.basename(dirPath);
     
@@ -339,12 +375,31 @@ function customDirectoryTree(
                 }
             }
             
+            // 如果只显示选中的文件，检查该目录是否包含任何选中的文件
+            if (showOnlySelectedFiles) {
+                // 检查是否有任何选中的文件在此目录下
+                const hasIncludedFiles = includedFiles.some(file => 
+                    file.startsWith(fullPath + path.sep) || file === fullPath
+                );
+                if (!hasIncludedFiles) {
+                    outputChannel.appendLine(`目录树生成：过滤目录 [${dir.name}]: 不包含任何选中文件`);
+                    return false;
+                }
+            }
+            
             return !shouldIgnorePath(fullPath, dirPath, ignorePatterns, outputChannel);
         });
         
         // 过滤掉应该被忽略的文件
         const filteredFiles = files.filter(file => {
             const fullPath = path.join(dirPath, file.name);
+            
+            // 如果只显示选中的文件，检查该文件是否被选中
+            if (showOnlySelectedFiles && !includedFiles.includes(fullPath)) {
+                outputChannel.appendLine(`目录树生成：过滤文件 [${file.name}]: 未被选中`);
+                return false;
+            }
+            
             return !shouldIgnorePath(fullPath, dirPath, ignorePatterns, outputChannel);
         });
         
@@ -358,7 +413,8 @@ function customDirectoryTree(
                 newPrefix, 
                 ignorePatterns,
                 includedFiles,
-                outputChannel
+                outputChannel,
+                showOnlySelectedFiles
             ).substring(prefix.length);
         });
         
@@ -457,27 +513,38 @@ function removeDuplicatePaths(paths: string[]): string[] {
 }
 
 // 收集所有文件（递归目录）
-async function collectAllFiles(paths: string[], outputChannel: vscode.OutputChannel): Promise<string[]> {
+async function collectAllFiles(
+    paths: string[], 
+    outputChannel: vscode.OutputChannel
+): Promise<string[]> {
     const allFiles: string[] = [];
     const ignorePatterns = new Map<string, Set<string>>();
     
+    // 获取配置
+    const config = vscode.workspace.getConfiguration('filesCombiner');
+    const ignoreIgnoreFiles = config.get<boolean>('ignoreIgnoreFiles', false);
+    
     outputChannel.appendLine(`开始处理选中的路径: [${paths.join(', ')}]`);
     
-    // 收集所有路径上的忽略规则
-    for (const p of paths) {
-        if (fs.statSync(p).isDirectory()) {
-            outputChannel.appendLine(`收集目录 [${p}] 的忽略规则...`);
-            const patterns = collectIgnorePatterns(p, outputChannel);
-            for (const [dir, pattern] of patterns.entries()) {
-                if (!ignorePatterns.has(dir)) {
-                    ignorePatterns.set(dir, new Set());
+    // 收集所有路径上的忽略规则（如果设置指定要忽略忽略文件，则跳过）
+    if (!ignoreIgnoreFiles) {
+        for (const p of paths) {
+            if (fs.statSync(p).isDirectory()) {
+                outputChannel.appendLine(`收集目录 [${p}] 的忽略规则...`);
+                const patterns = collectIgnorePatterns(p, outputChannel);
+                for (const [dir, pattern] of patterns.entries()) {
+                    if (!ignorePatterns.has(dir)) {
+                        ignorePatterns.set(dir, new Set());
+                    }
+                    pattern.forEach(p => ignorePatterns.get(dir)!.add(p));
                 }
-                pattern.forEach(p => ignorePatterns.get(dir)!.add(p));
             }
         }
+        
+        outputChannel.appendLine(`所有忽略规则收集完毕，开始扫描文件...`);
+    } else {
+        outputChannel.appendLine(`根据设置忽略所有 .file_combiner.ignore 文件，开始扫描文件...`);
     }
-    
-    outputChannel.appendLine(`所有忽略规则收集完毕，开始扫描文件...`);
     
     // 递归处理每个路径
     for (const p of paths) {
