@@ -12,6 +12,8 @@ export function activate(context: vscode.ExtensionContext) {
         const config = vscode.workspace.getConfiguration('filesCombiner');
         const showOnlySelectedFiles = config.get<boolean>('showOnlySelectedFiles', false);
         const ignoreIgnoreFiles = config.get<boolean>('ignoreIgnoreFiles', false);
+        const showLineCount = config.get<boolean>('showLineCount', true);
+        const showCharCount = config.get<boolean>('showCharCount', true);
         
         // selectedFiles 是一个 URI[] 数组，包含所有选中的文件
         if (!selectedFiles || !Array.isArray(selectedFiles) || selectedFiles.length === 0) {
@@ -57,7 +59,9 @@ export function activate(context: vscode.ExtensionContext) {
                     sortedPaths, 
                     outputChannel, 
                     showOnlySelectedFiles, 
-                    ignoreIgnoreFiles
+                    ignoreIgnoreFiles,
+                    showLineCount,
+                    showCharCount
                 );
             } catch (error) {
                 outputChannel.appendLine(`生成目录树失败: ${error}`);
@@ -211,7 +215,9 @@ function generateDirectoryTree(
     includedFiles: string[] = [], 
     outputChannel: vscode.OutputChannel,
     showOnlySelectedFiles: boolean = false,
-    ignoreIgnoreFiles: boolean = false
+    ignoreIgnoreFiles: boolean = false,
+    showLineCount: boolean = true,
+    showCharCount: boolean = true
 ): string {
     try {
         // 首先收集忽略规则（如果设置为忽略忽略文件，则返回空Map）
@@ -226,7 +232,9 @@ function generateDirectoryTree(
             ignorePatterns, 
             includedFiles, 
             outputChannel,
-            showOnlySelectedFiles
+            showOnlySelectedFiles,
+            showLineCount,
+            showCharCount
         );
     } catch (error) {
         const ignorePatterns = ignoreIgnoreFiles ? 
@@ -238,7 +246,9 @@ function generateDirectoryTree(
             ignorePatterns, 
             includedFiles, 
             outputChannel,
-            showOnlySelectedFiles
+            showOnlySelectedFiles,
+            showLineCount,
+            showCharCount
         );
     }
 }
@@ -328,7 +338,9 @@ function customDirectoryTree(
     ignorePatterns: Map<string, Set<string>> = new Map(),
     includedFiles: string[] = [],
     outputChannel: vscode.OutputChannel,
-    showOnlySelectedFiles: boolean = false
+    showOnlySelectedFiles: boolean = false,
+    showLineCount: boolean = true,
+    showCharCount: boolean = true
 ): string {
     const baseName = path.basename(dirPath);
     
@@ -414,7 +426,9 @@ function customDirectoryTree(
                 ignorePatterns,
                 includedFiles,
                 outputChannel,
-                showOnlySelectedFiles
+                showOnlySelectedFiles,
+                showLineCount,
+                showCharCount
             ).substring(prefix.length);
         });
         
@@ -422,6 +436,26 @@ function customDirectoryTree(
         filteredFiles.forEach((file, index) => {
             const isLast = index === filteredFiles.length - 1;
             const fullPath = path.join(dirPath, file.name);
+
+            // 获取文件统计信息
+            let statsString = '';
+            if (showLineCount || showCharCount) {
+                if (isBinaryFile(fullPath)) {
+                    statsString = ' [binary]';
+                } else {
+                    try {
+                        const content = fs.readFileSync(fullPath, 'utf-8');
+                        const lines = showLineCount ? `行数: ${content.split('\n').length}` : '';
+                        const chars = showCharCount ? `字符数: ${content.length}` : '';
+                        const stats = [lines, chars].filter(Boolean).join(', ');
+                        if (stats) {
+                            statsString = ` (${stats})`;
+                        }
+                    } catch (e) {
+                        statsString = ' [read error]';
+                    }
+                }
+            }
             
             // 检查文件是否包含在处理列表中
             const isIncluded = includedFiles.includes(fullPath);
@@ -429,7 +463,7 @@ function customDirectoryTree(
             // 添加标记符号，如果文件被包含在输出中
             const marker = isIncluded ? ' [已输出详细内容✅]' : '';
             
-            output += prefix + (isLast ? '└── ' : '├── ') + file.name + marker + '\n';
+            output += prefix + (isLast ? '└── ' : '├── ') + file.name + statsString + marker + '\n';
         });
         
         return output;

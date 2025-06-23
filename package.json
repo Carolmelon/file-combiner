@@ -2,7 +2,7 @@
   "name": "files-combiner",
   "displayName": "File Combiner Pro",
   "description": "Combine contents of multiple selected files into one file / 合并多个选中文件的内容到一个文件中",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "publisher": "rongsheng-li",
   "author": {
     "name": "Rongsheng Li",
@@ -36,13 +36,23 @@
       "properties": {
         "filesCombiner.showOnlySelectedFiles": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "仅在目录树中显示选中的文件"
         },
         "filesCombiner.ignoreIgnoreFiles": {
           "type": "boolean",
           "default": false,
           "description": "忽略 .file_combiner.ignore 文件"
+        },
+        "filesCombiner.showLineCount": {
+          "type": "boolean",
+          "default": true,
+          "description": "在目录树中显示每个文件的行数"
+        },
+        "filesCombiner.showCharCount": {
+          "type": "boolean",
+          "default": true,
+          "description": "在目录树中显示每个文件的字符数"
         }
       }
     }
